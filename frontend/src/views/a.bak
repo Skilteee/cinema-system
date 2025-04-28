@@ -1,0 +1,389 @@
+<template>
+    <div class="container">
+      <div class="ticket-page">
+        <!-- Notification -->
+        <div v-if="notification.message" :class="['notification', notification.type]">
+          {{ notification.message }}
+        </div>
+  
+        <!-- Movie Section -->
+        <div v-for="movie in movies" :key="movie.id" class="movie-section">
+          <div class="movie-info">
+            <img :src="movie.poster || '/default-poster.jpg'" alt="Movie Poster" class="movie-poster" />
+  
+            <div class="movie-details">
+              <h2 class="movie-title">{{ movie.title }}</h2>
+              <p class="movie-description">{{ movie.synopsis }}</p>
+  
+              <div class="movie-meta">
+                <p><strong>Duration:</strong> {{ movie.duration }}</p>
+                <p><strong>Director:</strong> {{ movie.director }}</p>
+                <p><strong>Producer:</strong> {{ movie.producer }}</p>
+                <p><strong>MPAA Rating:</strong> {{ movie.mpaaRating }}</p>
+                <p><strong>Price:</strong> ${{ movie.price }}</p>
+              </div>
+  
+              <!-- Showtime Selection -->
+              <div class="showtime-selection">
+                <h3 class="showtime-title">Select Show Time</h3>
+                <div class="showtime-grid">
+                  <button
+                    v-for="time in movie.showtimes"
+                    :key="time"
+                    @click="openSeatSelection(movie, time)"
+                  >
+                    {{ formatDateTime(time) }}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+  
+        <!-- Seat Selection Overlay -->
+        <div v-if="showSeatSelection" class="seat-selection-overlay">
+          <div class="seat-selection-content">
+            <h3>{{ selectedMovie.title }} - {{ formatDateTime(selectedShowtime) }}</h3>
+            <h4>Select Your Seats</h4>
+            <div class="seat-grid">
+              <div
+                v-for="seat in selectedMovie.seats"
+                :key="seat.id"
+                class="seat-wrapper"
+              >
+                <div
+                  :class="['seat', seat.isSelected ? 'seat-selected' : '']"
+                  @click="selectSeat(seat)"
+                >
+                  {{ seat.label }}
+                </div>
+  
+                <div v-if="seat.isSelected">
+                  <label for="age">Age:</label>
+                  <select v-model="seat.age">
+                    <option value="">Select Age</option>
+                    <option value="child">Child</option>
+                    <option value="adult">Adult</option>
+                    <option value="senior">Senior</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+  
+            <!-- Action Buttons -->
+            <div class="action-buttons">
+              <button @click="addToCart(selectedMovie)">Add to Cart</button>
+              <button @click="buyTicket(selectedMovie)">Buy Ticket</button>
+              <button @click="closeSeatSelection">Close</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </template>
+  
+  <script setup lang="ts">
+  import { ref, onMounted } from 'vue';
+  import axios from 'axios';
+  import { useRouter } from 'vue-router';
+  
+  const movies = ref([]); // 存储从后端获取的电影数据
+  const showSeatSelection = ref(false); // 控制座位选择界面
+  const selectedMovie = ref(null); // 当前选中的电影
+  const selectedShowtime = ref(''); // 当前选中的放映时间
+  const notification = ref({ message: '', type: '' }); // 通知信息
+  const router = useRouter();
+  
+  // 获取电影和 showtime 数据
+  const fetchMovies = async () => {
+    try {
+      const response = await axios.get('http://localhost:8080/movies');
+      movies.value = response.data;
+    } catch (error) {
+      console.error('Error fetching movies:', error);
+      showNotification('Failed to load movies. Please try again later.', 'error');
+    }
+  };
+  
+  // 打开座位选择
+  const openSeatSelection = async (movie: any, time: string) => {
+    try {
+      const response = await axios.get(`http://localhost:8080/schedules/movie/${movie.id}/seats`, {
+        params: { showtime: time },
+      });
+      selectedMovie.value = { ...movie, seats: response.data }; // 设置座位数据
+      selectedShowtime.value = time;
+      showSeatSelection.value = true;
+    } catch (error) {
+      console.error('Error fetching seats:', error);
+      showNotification('Failed to load seat information.', 'error');
+    }
+  };
+  
+  // 关闭座位选择
+  const closeSeatSelection = () => {
+    showSeatSelection.value = false;
+    selectedMovie.value = null;
+    selectedShowtime.value = '';
+  };
+  
+  // 显示通知消息
+  const showNotification = (message: string, type: string) => {
+    notification.value = { message, type };
+    setTimeout(() => {
+      notification.value = { message: '', type: '' };
+    }, 3000);
+  };
+  
+  // 添加座位到购物车
+  const addToCart = (movie: any) => {
+    const selectedSeats = movie.seats.filter((seat: any) => seat.isSelected && seat.age);
+    if (selectedSeats.length > 0 && selectedShowtime.value) {
+      const currentCart = JSON.parse(localStorage.getItem('cart') || '[]');
+      currentCart.push({
+        movie: movie.title,
+        showtime: selectedShowtime.value,
+        seats: selectedSeats.map((seat: any) => ({
+          label: seat.label,
+          price: seat.price,
+          age: seat.age,
+        })),
+      });
+      localStorage.setItem('cart', JSON.stringify(currentCart));
+  
+      movie.seats.forEach((seat: any) => (seat.isSelected = false));
+      showNotification('Added to cart!', 'success');
+    } else {
+      showNotification('Please select seats, ages, and showtime.', 'error');
+    }
+  };
+  
+  // 立即购票
+  const buyTicket = (movie: any) => {
+    const selectedSeats = movie.seats.filter((seat: any) => seat.isSelected && seat.age);
+    if (selectedSeats.length > 0) {
+      router.push('/CheckOut');
+    } else {
+      showNotification('Please select seats and ages.', 'error');
+    }
+  };
+  
+  // 格式化日期时间
+  const formatDateTime = (dateTime: string) => {
+    return new Date(dateTime).toLocaleString();
+  };
+  
+  // 页面加载时获取电影数据
+  onMounted(() => {
+    fetchMovies();
+  });
+  </script>
+
+<style scoped>
+/* Main Layout */
+.container {
+    background-color: #2f2e2e;
+    width : 100%;
+}
+
+.ticket-page {
+    max-width: 1000px;
+    margin: 0 auto;
+    padding: 20px;
+    padding-top: 80px;
+  }
+/* Movie Section */
+.movie-section {
+  margin-bottom: 40px;
+  padding: 20px;
+  background: #f9f9f9;
+  border-radius: 10px;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+  transition: transform 0.3s;
+}
+
+.movie-section:hover {
+  transform: translateY(-5px);
+}
+
+.movie-info {
+  display: flex;
+  align-items: flex-start;
+}
+
+.movie-poster {
+  width: 200px;
+  height: 300px;
+  object-fit: cover;
+  border-radius: 10px;
+  margin-right: 20px;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+.movie-details h2 {
+  font-size: 1.8em;
+  margin-bottom: 10px;
+  color: #333;
+}
+
+.movie-details p {
+  color: #555;
+  margin: 5px 0;
+}
+.movie-description {
+    font-size: 1.2em;
+    font-family: 'Arial', sans-serif;
+    color: #797979;
+    margin-bottom: 20px;
+    line-height: 1.5;
+  }
+  
+  .movie-meta {
+    font-size: 1.1em;
+    color: #444;
+    font-family: 'Arial', sans-serif;
+    margin-bottom: 20px;
+  }
+  
+  .movie-meta p {
+    margin: 8px 0;
+    display: flex;
+    align-items: center;
+  }
+  
+  .movie-meta i {
+    margin-right: 8px;
+    color: #007bff;
+  }
+  
+.showtime-title {
+    font-size: 1.2em;
+    margin-bottom: 10px;
+    color: #007bff;
+    font-weight: bold;
+  }
+.showtime-selection {
+  margin-top: 15px;
+}
+
+.showtime-grid {
+  display: flex;
+  gap: 10px;
+}
+
+.showtime-grid button {
+  padding: 10px 20px;
+  background-color: #007bff;
+  color: white;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: background-color 0.3s ease;
+}
+
+.showtime-grid button:hover {
+  background-color: #0056b3;
+}
+
+/* Seat Selection Overlay */
+.seat-selection-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(0, 0, 0, 0.8); /* Dark background */
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+}
+
+.seat-selection-content {
+  background-color: white;
+  padding: 30px;
+  border-radius: 10px;
+  width: 80%;
+  max-width: 900px;
+  max-height: 90%;
+  overflow-y: auto;
+  text-align: center;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+
+.seat-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 15px;
+  margin: 20px 0;
+}
+
+.seat {
+  padding: 15px;
+  background-color: #e0e0e0;
+  border: 2px solid #ccc;
+  cursor: pointer;
+  text-align: center;
+  border-radius: 8px;
+  color: #333;
+  transition: background-color 0.3s;
+}
+
+.seat:hover {
+  background-color: #d0d0d0;
+}
+
+.seat-selected {
+  background-color: #28a745;
+  border-color: #28a745;
+  color: white;
+}
+
+/* Action Buttons */
+.action-buttons {
+  margin-top: 20px;
+}
+
+.action-buttons button {
+  padding: 10px 20px;
+  margin: 0 10px;
+  background-color: #007bff;
+  color: white;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: background-color 0.3s ease;
+}
+
+.action-buttons button:hover {
+  background-color: #0056b3;
+}
+
+/* Notification */
+.notification {
+  position: fixed;
+  top: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 15px 20px;
+  border-radius: 5px;
+  color: white;
+  font-weight: bold;
+  z-index: 1001;
+  transition: opacity 0.5s ease-in-out;
+  background-color: #28a745; /* Default success color */
+}
+
+.notification.error {
+  background-color: #dc3545;
+}
+
+/* Cart Styles */
+.cart-section {
+  margin-top: 30px;
+  padding: 20px;
+  border: 2px solid #333;
+  border-radius: 8px;
+  background-color: #f0f0f0;
+}
+</style>
